@@ -1979,8 +1979,8 @@ export function ClauseExplorerTab() {
   const [schemas, setSchemas] = useState<string[]>(['auto']);
   const [detectingSchema, setDetectingSchema] = useState(false);
   const [schemaReason, setSchemaReason] = useState('');
-  // #, No., Name, Clause Text, Summary, Type, actions
-  const [clauseExColWidths, setClauseExColWidths] = useState([30, 70, 140, 340, 160, 120, 28]);
+  // #, No., Clause Text, Type, actions
+  const [clauseExColWidths, setClauseExColWidths] = useState([30, 70, 340, 120, 28]);
   const clauseExResizeDragRef = useRef<{ col: number; startX: number; startW: number } | null>(null);
   function startClauseExColResize(col: number, e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
@@ -3190,10 +3190,8 @@ export function ClauseExplorerTab() {
                   <tr style={{ position: 'sticky', top: 0, zIndex: 2, borderBottom: '1px solid var(--border-color)', background: '#090910' }}>
                     <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>#<div onMouseDown={e => startClauseExColResize(0, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
                     <th onClick={() => handleClauseSort('clause_no')} style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>No.<ClauseSortIcon col="clause_no" /><div onMouseDown={e => startClauseExColResize(1, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
-                    <th onClick={() => handleClauseSort('clause_name')} style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Name<ClauseSortIcon col="clause_name" /><div onMouseDown={e => startClauseExColResize(2, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
-                    <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Clause Text<div onMouseDown={e => startClauseExColResize(3, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
-                    <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Summary<div onMouseDown={e => startClauseExColResize(4, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
-                    <th onClick={() => handleClauseSort('detected_type')} style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Type<ClauseSortIcon col="detected_type" /><div onMouseDown={e => startClauseExColResize(5, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
+                    <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Clause Text<div onMouseDown={e => startClauseExColResize(2, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
+                    <th onClick={() => handleClauseSort('detected_type')} style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Type<ClauseSortIcon col="detected_type" /><div onMouseDown={e => startClauseExColResize(3, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
                     <th />
                   </tr>
                 </thead>
@@ -3218,23 +3216,6 @@ export function ClauseExplorerTab() {
                             style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-secondary)', fontSize: '0.72rem', fontFamily: 'inherit', padding: 0, resize: 'none', lineHeight: 1.45, wordBreak: 'break-word', overflowWrap: 'break-word' } as React.CSSProperties}
                           />
                         </td>
-                        <td style={{ padding: '6px 10px', verticalAlign: 'top' }} onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                            <button
-                              onClick={() => { setSelectedClause(isSelected ? null : c); setRecapturingClauseId(null); }}
-                              title="Jump to this clause in the document preview"
-                              style={{ flexShrink: 0, background: 'none', border: 'none', color: 'rgba(147,197,253,0.6)', cursor: 'pointer', fontSize: '0.72rem', padding: 0, marginTop: 2, lineHeight: 1 }}
-                            >↗</button>
-                            <textarea
-                              value={c.clause_name || ''}
-                              onChange={e => updateClause(origIdx, { clause_name: e.target.value })}
-                              placeholder={c.ai_classification || (c.detected_type || '').split(',')[0] || `Clause ${i + 1}`}
-                              rows={Math.max(1, Math.ceil((c.clause_name || '').length / 14))}
-                              title="Edit clause name"
-                              style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: '#93c5fd', fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', padding: 0, resize: 'none', lineHeight: 1.4, wordBreak: 'break-word', overflowWrap: 'break-word' } as React.CSSProperties}
-                            />
-                          </div>
-                        </td>
                         <td style={{ padding: '6px 10px' }} onClick={e => e.stopPropagation()}>
                           <textarea
                             value={c.clause_text}
@@ -3242,9 +3223,6 @@ export function ClauseExplorerTab() {
                             rows={textRows}
                             style={{ width: '100%', resize: 'vertical', background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: '0.73rem', fontFamily: 'inherit', lineHeight: 1.6, padding: 0, minHeight: 48, wordBreak: 'break-word', overflowWrap: 'break-word' } as React.CSSProperties}
                           />
-                        </td>
-                        <td style={{ padding: '6px 10px', color: 'var(--text-muted)', fontSize: '0.72rem', verticalAlign: 'top', wordBreak: 'break-word', lineHeight: 1.5 }}>
-                          {c.ai_classification || ''}
                         </td>
                         <td style={{ padding: '6px 10px' }} onClick={e => e.stopPropagation()}>
                           {addingTypeRow === origIdx ? (
@@ -3261,7 +3239,7 @@ export function ClauseExplorerTab() {
                                       setCustomExtractorTypes(next);
                                       try { localStorage.setItem('consola_clause_types', JSON.stringify(next)); } catch { /* ignore */ }
                                       const existing = (c.detected_type || '').split(',').map(s => s.trim()).filter(Boolean);
-                                      if (!existing.includes(trimmed)) updateClause(origIdx, { detected_type: [...existing, trimmed].join(', ') });
+                                      updateClause(origIdx, { detected_type: existing.includes(trimmed) ? existing.join(', ') : [...existing, trimmed].join(', '), clause_name: trimmed });
                                     }
                                     setAddingTypeRow(null); setNewTypeValue('');
                                   } else if (e.key === 'Escape') { setAddingTypeRow(null); setNewTypeValue(''); }
@@ -3286,9 +3264,9 @@ export function ClauseExplorerTab() {
                               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                 <SearchableSelect
                                   value=""
-                                  onChange={v => { if (!v) return; const ex = (c.detected_type || '').split(',').map(s => s.trim()).filter(Boolean); if (!ex.includes(v)) updateClause(origIdx, { detected_type: [...ex, v].join(', ') }); }}
+                                  onChange={v => { if (!v) return; const ex = (c.detected_type || '').split(',').map(s => s.trim()).filter(Boolean); updateClause(origIdx, { detected_type: ex.includes(v) ? ex.join(', ') : [...ex, v].join(', '), clause_name: v }); }}
                                   options={[...new Set([...CANONICAL_CLAUSE_TYPES, ...customExtractorTypes])].map(t => ({ value: t, label: t }))}
-                                  placeholder="Add type…"
+                                  placeholder="Set clause name / type…"
                                   style={{ flex: 1, minWidth: 0, background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', color: '#e2e8f0', fontSize: '0.68rem', borderRadius: 4, padding: '4px 6px', fontFamily: 'inherit' }}
                                 />
                                 <button onClick={() => { setAddingTypeRow(origIdx); setNewTypeValue(''); }} title="Add custom type"
