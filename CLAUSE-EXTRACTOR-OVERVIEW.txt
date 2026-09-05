@@ -1,0 +1,488 @@
+================================================================================
+CONSOLA 360 — CLAUSE EXTRACTOR MODULE
+Full Technical Overview
+================================================================================
+
+Last updated: 2026-04-19
+
+
+────────────────────────────────────────────────────────────────────────────────
+1. WHAT THE MODULE DOES
+────────────────────────────────────────────────────────────────────────────────
+
+The Clause Extractor is the pipeline that converts raw legal documents (PDF,
+DOCX, TXT) into a structured, reviewable, compliance-scored table of clauses
+stored in the Supabase `clauses` table. It sits under the Contracts module and
+is the input source for Playbook compliance checking.
+
+The module has two distinct surfaces:
+
+  A. Document Upload Modal  — where a user uploads a file and triggers
+     extraction. Lives at: components/upload/DocumentUploadModal.tsx
+
+  B. Clause Explorer page   — where all extracted clauses across all documents
+     are browsed, filtered, and reviewed. Lives at:
+     app/(app)/documents/clauses/page.tsx
+
+  C. Extraction Review page — lightweight status page showing extraction jobs
+     and how many clauses were pulled per upload. Lives at:
+     app/(app)/documents/extraction/page.tsx
+
+
+────────────────────────────────────────────────────────────────────────────────
+2. END-TO-END PIPELINE
+────────────────────────────────────────────────────────────────────────────────
+
+Step 1  —  FILE UPLOAD & TEXT EXTRACTION
+  User selects a file in DocumentUploadModal. The file (PDF/DOCX/TXT) is sent
+  to POST /api/documents/preview-text which returns raw text for a live preview
+  in the right-side panel of the modal. A separate AI Suggest button calls
+  POST /api/documents/ai-suggest to auto-fill Title, Entity, and Counterparty
+  fields from the document text.
+
+  After the user fills in metadata (title, document type, entity, counterparty,
+  governing state, parent document if an amendment), clicking Extract sends a
+  multipart form to POST /api/documents/extract which:
+    - Saves the file to Supabase Storage (bucket: documents)
+    - Creates a row in the `documents` table
+    - Saves the extracted plain text to documents.file_text
+    - Triggers the LlamaParse + classify pipeline (see Steps 2-3 below)
+    - Returns a document_id for the new record
+
+Step 2  —  STRUCTURAL CLAUSE EXTRACTION (LlamaParse via LlamaCloud)
+  POST /api/documents/extract-clauses-llama receives the raw document text and
+  sends it to the LlamaCloud parsing API (LLAMAPARSE_BASE). The prompt instructs
+  the model to:
+
+    TASK 1 — Identify all party names in the preamble/recitals. Parties that
+    fuzzy-match a known entity or asset name go into entity_names[]; the rest
+    go into counterparty_names[].
+
+    TASK 2 — Extract every clause as a separate JSON object:
+      - clause_no   : the section number only (e.g. "1", "4", "IV")
+      - clause_name : the heading title only (e.g. "Indemnification")
+      - clause_text : COMPLETE verbatim body text including all sub-items
+      - detected_type: best-match from the Canonical Types List (see Section 4)
+
+  Critical extraction rules enforced in the prompt:
+    - NEVER truncate clause_text — all sub-items must be included
+    - Only split at top-level section boundaries
+    - Sub-items (a)(b)(i)(ii) belong to the parent clause's clause_text
+    - All-caps headings count as valid clause delimiters even without a number
+
+  The LlamaParse job is submitted and polled up to 60 seconds (2s intervals,
+  30 attempts). On success the markdown result is fetched and parsed. Multiple
+  JSON blocks separated by "---" are merged. The route returns:
+    { clauses: ExtractedClause[], entity_names: string[], counterparty_names: string[] }
+
+Step 3  —  AI CLASSIFICATION (Groq / CUAD Fallback)
+  POST /api/documents/classify-clauses receives the extracted clauses and calls
+  Groq (model configured via GROQ_MODEL env var) to classify each clause into
+  exactly one Canonical Clause Type (see Section 4). The prompt includes:
+    - The full list of ~155 canonical types
+    - Per-type classification hints derived from the CUAD legal dataset
+    - Disambiguation rules for closely related types (e.g. Renewal Term vs
+      Notice Period To Terminate Renewal; No-Solicit Of Employees vs Customers)
+
+  For each clause the Groq response provides:
+    - obligation_type   : canonical type string (exact match from list)
+    - ai_classification : a brief specific description of THIS clause instance
+                          (e.g. "Mutual indemnification for IP infringement claims")
+    - affiliates_bound  : entity/affiliate names explicitly mentioned
+    - confidence        : 0.0 – 1.0
+
+  Rate-limit / offline fallback: If Groq returns a 429 or any error, the system
+  falls back to a signature-based CUAD classifier (classifyWithSignatures).
+  This scores each clause against TF-IDF keyword signatures in CLAUSE_TYPE_SIGNATURES
+  (lib/clauseTypes.ts). The first 800 characters of clause_text are used to
+  prevent Definitions sections from poisoning the score. A match needs >= 5%
+  keyword hit rate to override the LlamaParse detected_type.
+
+  Type normalization: The string returned by Groq is matched against canonical
+  types via a 3-tier resolution:
+    1. Exact case-insensitive match
+    2. TYPE_ALIASES map (e.g. "indemnity" → "Indemnification")
+    3. Partial word match (min 6 chars)
+
+  IMPORTANT: The user's manually-edited detected_type is ALWAYS preserved.
+  Groq output goes into obligation_type and ai_classification only; it does
+  not overwrite what the client sent for detected_type.
+
+Step 4  —  SAVE TO SUPABASE
+  classify-clauses saves each clause as a row in the `clauses` table.
+  Clause IDs are deterministic: cl_{doc4digits}_{seqNN}  (e.g. cl_0001_01).
+  Existing clauses for the document are deleted before upsert so re-extraction
+  replaces rather than accumulates.
+
+  Optional columns (entity_name, counterparty_name, clause_name,
+  contract_family_id) are stripped one-by-one on schema mismatch and retried,
+  so the insert never hard-fails due to a missing column migration.
+
+Step 5  —  SYNCHRONOUS COMPLIANCE CHECK
+  Immediately after saving, classify-clauses calls runDocumentCompliance()
+  (lib/compliance/checker.ts). This:
+    - Loads the playbook linked to the document (via playbook_id on the document
+      or the entity's default playbook)
+    - For each clause row, finds the matching PlaybookRule by clause_type
+      (fuzzy-matched through CLAUSE_SYNONYM_GROUPS)
+    - Calls Groq to score compliance (1–10 scale, rubric-based) and classify
+      status as compliant / non_compliant / review_needed
+    - Writes compliance_status, compliance_score, compliance_notes, playbook_id
+      back to the clause row in Supabase
+
+  The compliance check also detects clauses required by the playbook
+  (PlaybookRule.required_clause = true) that are absent from the document and
+  returns them as missing_required_clauses[].
+
+  Users can re-trigger compliance on demand via the "Run Compliance Check"
+  button in Clause Explorer (calls POST /api/documents/compliance-check).
+
+
+────────────────────────────────────────────────────────────────────────────────
+3. DATABASE SCHEMA
+────────────────────────────────────────────────────────────────────────────────
+
+3A. documents table
+────────────────────
+
+This is the parent record for every uploaded contract. One document → many
+clauses. Created initially by the extract route, updated via PATCH /api/documents.
+
+  Column              Type          Notes
+  ──────────────────  ────────────  ─────────────────────────────────────────────
+  document_id         TEXT PK       Sequential: doc_0001, doc_0002, …
+  title               TEXT          Display name (can be AI-suggested)
+  document_type       TEXT          From CONTRACT_TYPE_CATEGORIES / custom types
+                                    e.g. "msa", "nda", "service_agreement"
+  document_subtype    TEXT          Optional sub-classification
+  entity_id           TEXT FK       Primary linked entity (entities.entity_id)
+  entity_name         TEXT          Denormalized entity name for display
+  asset_id            TEXT FK       Linked asset if applicable (assets.asset_id)
+  counterparty_name   TEXT          Other party name as extracted or entered
+  effective_date      DATE          Contract start date
+  expiration_date     DATE          Contract end date
+  status              TEXT          'active' | 'expired' | 'draft' | etc.
+  file_text           TEXT          Full plain-text content of the uploaded file
+  governing_state     TEXT          e.g. "California", "Delaware"
+  parent_doc_id       TEXT FK       Parent document if this is an amendment/rider
+  doc_relation        TEXT          Relationship to parent: "Amendment", "Rider", etc.
+  created_at          TIMESTAMPTZ   Auto-set on insert
+
+3B. clauses table
+──────────────────
+
+One row per extracted clause. Linked to documents via document_id.
+Also linked to playbooks via playbook_id after compliance check runs.
+
+  Column                Type          Notes
+  ──────────────────    ────────────  ─────────────────────────────────────────────
+  clause_id             TEXT PK       Sequential: cl_{doc4digits}_{seqNN}
+                                      e.g. cl_0001_01, cl_0001_02
+  document_id           TEXT FK       References documents.document_id
+  contract_family_id    TEXT          Groups related documents (parent + amendments)
+  clause_no             TEXT          Section number only, e.g. "1", "4", "IX", "A"
+  clause_name           TEXT          Heading title as it appears in the document,
+                                      e.g. "Indemnification", "Force Majeure"
+  clause_type           TEXT          DB storage column — mirrors detected_type.
+                                      The API maps clause_type → detected_type on
+                                      read so UI always reads detected_type.
+  clause_text           TEXT          Complete verbatim body text of the clause
+  obligation_type       TEXT          Canonical type from AI classification
+                                      (one of 155 values in CANONICAL_CLAUSE_TYPES)
+  ai_classification     TEXT          AI's specific description of this clause instance
+                                      e.g. "Mutual indemnification for IP infringement"
+  ai_confidence         NUMERIC       0.0 – 1.0; Groq confidence or 0.5/0.7 for fallback
+  affiliates_bound      TEXT[]        Entity/affiliate names bound by this clause
+  subtags               TEXT[]        Additional tags (reserved for future use)
+  review_status         TEXT          'pending' | 'approved' | 'rejected'
+                                      Default: 'pending'
+  complexity_score      NUMERIC       Reserved — not currently populated
+  balance_score         NUMERIC       Reserved — not currently populated
+  source_page           INTEGER       Page number in source document (if available)
+  char_start            INTEGER       Character offset start in file_text
+  char_end              INTEGER       Character offset end in file_text
+  compliance_status     TEXT          'compliant' | 'non_compliant' |
+                                      'review_needed' | 'unchecked'
+                                      Default: 'unchecked'
+  compliance_notes      TEXT          Groq explanation of the compliance decision.
+                                      May be prefixed with [low], [medium], or [high]
+                                      to encode risk level (parsed at render time)
+  compliance_score      INTEGER       1–10; 10 = matches preferred position exactly
+  playbook_id           TEXT          ID of the playbook rule used for compliance check
+  entity_name           TEXT          Denormalized from the parent document
+  counterparty_name     TEXT          Denormalized from the parent document
+  created_at            TIMESTAMPTZ   Auto-set on insert
+
+  Indexes:
+    clauses_clause_name        ON clause_name
+    clauses_compliance_status  ON compliance_status
+
+
+────────────────────────────────────────────────────────────────────────────────
+4. CANONICAL CLAUSE TYPE TAXONOMY
+────────────────────────────────────────────────────────────────────────────────
+
+Defined in lib/clauseTypes.ts. These are the ONLY valid values for
+obligation_type and detected_type. Derived from the CUAD legal dataset
+plus common contract categories. Any value returned by the AI that doesn't
+match goes through a 3-tier alias resolution; unresolvable values become "Other".
+
+There are 155 canonical types. A full alphabetical list:
+
+  Acceleration Clause, Acceleration of Rent Clause, Acceptance Criteria,
+  Access Clause, Acknowledgment Clause, Accord and Satisfaction,
+  Accrued Rights, Additional Insured, Affiliate License, Agreement Date,
+  Agreement Not to Sue, Amended & Restated Agreement, Amendment,
+  Amendment of Bylaws Clause, Anti-Assignment, Anti-Corruption / FCPA Clause,
+  Anti-Dilution Clause, Arbitration, Assignment Clause, At-Will Employment,
+  Attorneys Fees Clause, Audit Clause, Audit Rights, Benchmarking Clause,
+  Best Efforts / Reasonable Efforts, Boilerplate, Break Clause,
+  Breach of Contract, Call / Put Option Clause, Change Of Control,
+  Clawback Clause, Competitive Restriction Exception, Compliance with Laws,
+  Conditions of Contract, Conditions Precedent, Confidentiality,
+  Consideration Clause, Consequential Damages Waiver, Counterparts Clause,
+  Counteroffer, Covenant Not to Compete (M&A), Covenant Not To Sue,
+  Covenant of Quiet Enjoyment, Cross-Default Clause, Data Protection Clause,
+  Disclaimer, Dispute Resolution, Document Name, Drag-Along Rights,
+  Duty to Mitigate, Early Termination, Earn-Out Clause,
+  Easement Agreement Clause, Effective Date, Entire Agreement,
+  Escalation Clause, Escrow, Estoppel Letters Clause, Evergreen Clause,
+  Exclusive Supplier Clause, Exclusivity, Exculpatory Clause, Expiration Date,
+  Force Majeure, Frustration of Purpose, Good Faith & Fair Dealing,
+  Governing Law, Gross-Up Clause, Guarantee Clause, Hardship Clause,
+  Hold Harmless, Holdback Clause, Indemnification, Independent Contractor,
+  Insurance, Intellectual Property Clause, IP Ownership Assignment,
+  Irrevocable Or Perpetual License, Joint & Several Liability, Joint IP Ownership,
+  Jurisdiction / Choice of Law, Key Person Clause, Letter of Intent (LOI),
+  License Grant, Limited Liability, Liquidated Damages, Liquidation Preference,
+  Lock-Up Agreement, Material Adverse Change (MAC/MAE), Material Breach,
+  Milestone Clause, Minimum Commitment, Most Favored Nation, Negative Pledge,
+  No-Shop Clause, No-Solicit Of Customers, No-Solicit Of Employees,
+  Non-Circumvention Clause, Non-Compete, Non-Disparagement, Non-Solicitation,
+  Non-Transferable License, Non-Waiver Clause, Notice and Cure, Notice Clause,
+  Notice Period To Terminate Renewal, Notice Requirements, Novation,
+  Pari Passu Clause, Parol Evidence Rule, Parties, Payment Terms, Penalty Clause,
+  Post-Termination Services, Power of Attorney, Price Adjustment / Escalation,
+  Price Restrictions, Promissory Estoppel, Publicity / Press Release Clause,
+  Quantum Meruit, Release of Claims, Renewal Clause, Renewal Term,
+  Representations And Warranties, Representations vs. Warranties,
+  Retention of Title, Revenue/Profit Sharing, Right of First Offer (ROFO),
+  Right of First Refusal (ROFR), ROFR/ROFO/ROFN, Sanctions & Export Control,
+  Scope of Work, Set-Off / Offset Clause, Severability, Side Letter, SLA Clause,
+  Source Code Escrow, Specific Performance, Standstill Clause, Statute of Frauds,
+  Step-In Rights, Subrogation, Subordination Clause, Successors and Assigns,
+  Sunset Clause, Survival Clause, Tag-Along Rights (Co-Sale), Tail Period / Tail Clause,
+  Term, Termination by Either Party, Termination Fee / Break-Up Fee,
+  Termination For Convenience, Termination of Lease, Termination Payment,
+  Termination With Cause, Termination Without Cause, Third Party Beneficiary,
+  Time is of the Essence, Unlimited License, Unlimited/All-You-Can-Eat License,
+  Unjust Enrichment, Volume Restriction, Waiver, Waiver of Subrogation,
+  Warranties, Warranty Disclaimer / As Is, Warranty Duration,
+  Work for Hire / IP Ownership, Other
+
+
+────────────────────────────────────────────────────────────────────────────────
+5. CLAUSE EXPLORER — COLUMNS DISPLAYED TO USER
+────────────────────────────────────────────────────────────────────────────────
+
+The Clause Explorer table (app/(app)/documents/clauses/page.tsx) displays the
+following columns. All columns are user-resizable by dragging the column border.
+
+  Col #  Header           Source field(s)                 Notes
+  ─────  ──────────────   ──────────────────────────────  ──────────────────────
+  1      Type             detected_type (→ clause_type)   Clause category from
+                                                           canonical taxonomy.
+                                                           Underscores replaced
+                                                           with spaces; capitalized.
+
+  2      Name             ai_classification               The AI's specific
+                          (fallback: "§ {clause_no}")     description of this
+                                                           particular clause.
+                                                           E.g. "Mutual
+                                                           indemnification for
+                                                           IP infringement claims"
+
+  3      Summary          normalized_summary              One-line plain-English
+                          (fallback: clause_text_snippet) summary of the clause.
+                                                           Truncated with ellipsis.
+
+  4      (blank header)   _name                           The heading title as
+                                                           it appears verbatim in
+                                                           the document, e.g.
+                                                           "Section 12 — Indemn."
+                                                           (maps to clause_name)
+
+  5      Counter Party    counterparty_name               Counterparty name
+                                                           inherited from the
+                                                           parent document record.
+
+  6      Section          document_section_reference      Section number rendered
+                                                           as "§ {value}"
+
+  7      Compliance       compliance_status +             Badge with color coding:
+                          compliance_score                  compliant      = green
+                                                            non_compliant  = red
+                                                            review_needed  = amber
+                                                            unchecked      = "—"
+                                                           Score shown as N/10
+                                                           next to the badge.
+
+  Default column widths (px): Type=140, Name=180, Summary=260,
+  (blank)=110, Counter Party=110, Section=80, Compliance=100
+
+FILTERS ABOVE THE TABLE:
+
+  Category pills   — filters on detected_type substring match. Built-in pills:
+                     All | insurer_notice | financial_covenant | cross_default |
+                     renewal_deadline | reporting_duty | indemnity |
+                     cancellation | payment_date
+
+  Document picker  — dropdown of all documents; filters to one document's clauses.
+                     Sends documentId query param to GET /api/documents/clauses.
+
+  Compliance picker — All Compliance | Compliant | Non-Compliant |
+                      Review Needed | Unchecked
+                      Sends compliance_status query param to the same endpoint.
+
+  Run Compliance Check button — triggers POST /api/documents/compliance-check
+                      for the selected document. Requires a document to be
+                      selected (not "All Documents"). Returns count of checked
+                      clauses and lists missing required clauses in a red banner.
+
+  + Upload Document button — opens DocumentUploadModal to start a new extraction.
+
+
+────────────────────────────────────────────────────────────────────────────────
+6. CLAUSE DETAIL PANEL (RIGHT SIDE)
+────────────────────────────────────────────────────────────────────────────────
+
+Clicking any row opens a 320px right panel showing full clause detail:
+
+  Field               Source field           Notes
+  ────────────────    ───────────────────    ─────────────────────────────────────
+  TYPE                detected_type          Full canonical type name
+  NAME                ai_classification      AI's specific description
+  (blank label)       _name / clause_name    Verbatim heading from document
+  COUNTER PARTY       counterparty_name      From parent document
+  COMPLIANCE STATUS   compliance_status      Badge (compliant/non_compliant/etc.)
+                      + compliance_score     N/10 score next to badge
+  SECTION             document_section_      "§ {value}"
+                      reference
+  SUMMARY             normalized_summary     Full summary text (not truncated)
+                      or clause_text_snippet
+  SCORE               compliance_score       Displayed as large number with
+                                             color-coded progress bar:
+                                               8–10 = green
+                                               5–7  = amber
+                                               1–4  = red
+  RISK LEVEL          compliance_notes       Parsed from [low/medium/high] prefix
+  COMPLIANCE NOTES    compliance_notes       The Groq explanation text (prefix
+                                             stripped for display)
+  PREFERRED POSITION  playbookRule           Loaded from /api/playbooks using the
+                      .preferred_position    clause's playbook_id. Shows the
+                                             company's preferred negotiating stance
+                                             for this clause type.
+  PLAYBOOK            playbook_id            Displayed as monospace reference ID
+
+
+────────────────────────────────────────────────────────────────────────────────
+7. API SURFACE SUMMARY
+────────────────────────────────────────────────────────────────────────────────
+
+  Endpoint                                    Method   Purpose
+  ──────────────────────────────────────────  ──────   ───────────────────────────
+  /api/documents/extract                      POST     Upload file → save document
+                                                       + trigger full pipeline
+  /api/documents/extract-clauses-llama        POST     LlamaParse structural
+                                                       extraction (text → clauses)
+  /api/documents/classify-clauses             POST     Groq/CUAD classification
+                                                       → save to clauses table
+  /api/documents/clauses                      GET      Fetch clauses (optional:
+                                                       documentId, compliance_status)
+  /api/documents/clauses                      PATCH    Update a single clause
+                                                       (detected_type, compliance_status, etc.)
+  /api/documents/clauses                      DELETE   Delete clause(s) by id
+  /api/documents/compliance-check             POST/GET Run playbook compliance on
+                                                       a document (document_id)
+  /api/documents/preview-text                 POST     Extract text from file for preview
+  /api/documents/ai-suggest                   POST     AI-fill title/entity/counterparty
+  /api/documents/route (documents)            GET      List all documents
+  /api/documents/uploads                      GET      List extraction job history
+
+
+────────────────────────────────────────────────────────────────────────────────
+8. KEY SOURCE FILES
+────────────────────────────────────────────────────────────────────────────────
+
+  lib/clauseTypes.ts                      — CANONICAL_CLAUSE_TYPES list,
+                                            CLAUSE_TYPE_SIGNATURES (TF-IDF fallback),
+                                            CLAUSE_TYPE_HINTS (Groq prompts)
+
+  lib/ruleBasedExtractor.ts               — ExtractedClause and NumberingSchema
+                                            type definitions; text normalization
+                                            helpers; numbering schema catalog
+
+  lib/compliance/checker.ts               — runDocumentCompliance(), PlaybookRule
+                                            interface, ComplianceStatus type,
+                                            clause synonym groups for fuzzy matching
+
+  lib/compliance/rulesEngine.ts           — Keyword-based rules layer that runs
+                                            before Groq to pre-score red flags
+                                            and green signals
+
+  lib/compliance/checkpoints.ts           — Checkpoint definitions for the rules engine
+
+  app/api/documents/extract-clauses-llama/route.ts  — LlamaParse integration
+  app/api/documents/classify-clauses/route.ts       — Groq + CUAD fallback classifier
+  app/api/documents/clauses/route.ts                — CRUD for the clauses table
+  app/api/documents/compliance-check/route.ts       — On-demand compliance runner
+
+  app/(app)/documents/clauses/page.tsx    — Clause Explorer UI
+  app/(app)/documents/extraction/page.tsx — Extraction review status page
+
+  components/upload/DocumentUploadModal.tsx — Upload + metadata form UI
+
+  scripts/schema.sql                      — Base documents table DDL
+  scripts/add-clauses-table.sql           — clauses table DDL
+  scripts/add-clause-name-column.sql      — clause_name column migration
+  scripts/add-compliance-columns.sql      — compliance_status/notes/score/playbook_id
+  scripts/add-all-missing-columns.sql     — catch-up migration for all extras
+
+
+────────────────────────────────────────────────────────────────────────────────
+9. NUMBERING SCHEMA CATALOG (ruleBasedExtractor.ts)
+────────────────────────────────────────────────────────────────────────────────
+
+The extractor handles the following numbering formats automatically.
+These are stored as NUMBERING_SCHEMAS and used during the extraction step to
+determine how to split clause boundaries.
+
+  Schema ID                   Format Description
+  ──────────────────────────  ─────────────────────────────
+  numeric                     1. 2. 3.
+  numeric-bare                1 2 3 (no period)
+  numeric-paren               1) 2) 3)
+  paren-numeric               (1) (2) (3)
+  decimal                     1.1, 1.2, 2.1…
+  decimal-period              1.1., 1.2., 1.3. (trailing period)
+  decimal-zero                1.0, 2.0, 3.0…
+  decimal-triple              1.1.1, 1.2.1…
+  decimal-triple-period       1.1.1., 1.1.2. (trailing period)
+  alpha-upper                 A. B. C.
+  alpha-lower                 a. b. c.
+  alpha-lower-paren           a) b) c)
+  paren-alpha                 (a) (b) (c)
+  roman-upper                 I. II. III.
+  roman-lower                 i. ii. iii.
+  roman-upper-paren           I) II) III)
+  roman-lower-paren           i) ii) iii)
+  paren-roman-upper           (I) (II) (III)
+  paren-roman-lower           (i) (ii) (iii)
+  section                     Section 1., Section 2.
+  section-decimal             Section 1. (with 1.1 subs)
+  section-bare                Section 1 / Section I / Article 1 / Article I
+  article                     Article I., Article II.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

@@ -1,0 +1,22 @@
+-- ============================================================
+-- Add contracts.recording_rule — the contract's OWN recording consent
+-- rule, distinct from clients.video_consent_policy (which is the client's
+-- rolled-up default across all their contracts). Set by
+-- app/api/documents/classify-clauses/route.ts's contract-level backfill
+-- once a document is parsed:
+--   'opt-in'  — a Recording Consent Clause was found and states recording
+--               is allowed by default (e.g. "client consents to the use
+--               of video recording...").
+--   'opt-out' — a Recording Consent Clause was found and states recording
+--               is prohibited absent consent (e.g. "client hereby opts
+--               out of all recordings", "recordings are prohibited unless
+--               [rider] gives written consent").
+--   'missing' — the contract has been parsed but no recording consent
+--               language was found in any clause.
+--   NULL      — the contract hasn't been parsed yet.
+-- Nullable with NO default — a blank value means "not yet parsed", never
+-- assumed missing/opt-out.
+-- Run once in Supabase SQL Editor. Safe to re-run (idempotent).
+-- ============================================================
+
+ALTER TABLE public.contracts ADD COLUMN IF NOT EXISTS recording_rule TEXT;
