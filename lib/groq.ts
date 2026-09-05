@@ -1,6 +1,12 @@
 import Groq from 'groq-sdk';
 
-export const GROQ_MODEL = 'openai/gpt-oss-120b';
+// Override with GROQ_MODEL in the environment. The default (openai/gpt-oss-120b)
+// is best-quality but Groq's free tier caps it hard (8k tokens/min, 200k/day) —
+// a single document's extract + classify + form-classify pipeline exhausts that
+// and every call 429s, dropping the whole app to keyword fallbacks. On the free
+// tier set GROQ_MODEL=llama-3.1-8b-instant (30k tpm, far higher daily); for
+// best quality upgrade to Groq's Dev tier and keep the default.
+export const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 type ChatCreateParams = Parameters<Groq['chat']['completions']['create']>[0];
 
