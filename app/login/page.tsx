@@ -36,7 +36,7 @@ function LoginForm() {
   }
 
   function completeSignIn() {
-    const redirectTo = searchParams.get('redirectTo') || '/legal-requirements';
+    const redirectTo = searchParams.get('redirectTo') || '/documents/parser';
     router.push(redirectTo);
     router.refresh();
   }

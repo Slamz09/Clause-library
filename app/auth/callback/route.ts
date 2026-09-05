@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 // Prevents open redirect attacks where an attacker crafts a link that
 // redirects the user to an external site after authentication.
 const REDIRECT_ALLOWLIST = [
+  '/documents/parser',
   '/legal-requirements',
   '/evaluations',
   '/decision-traces',
@@ -25,7 +26,7 @@ const REDIRECT_ALLOWLIST = [
   '/reset-password',
 ]
 
-const DEFAULT_REDIRECT = '/legal-requirements'
+const DEFAULT_REDIRECT = '/documents/parser'
 
 function isSafeRedirect(redirectTo: string): boolean {
   try {
