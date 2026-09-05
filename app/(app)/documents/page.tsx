@@ -15,13 +15,7 @@ import { VENDOR_TYPE_OPTIONS } from '@/lib/vendorTypes';
 import { matchesBooleanQuery, extractPositiveTerms } from '@/lib/booleanSearch';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import {
-  CLAUSE_CATEGORY_VALUES, CLAUSE_MODIFIER_VALUES,
-  CLAUSE_CATEGORY_LABELS, CLAUSE_MODIFIER_LABELS,
-  CLAUSE_CATEGORY_DESCRIPTIONS,
-  CLAUSE_CATEGORY_COLORS, CLAUSE_MODIFIER_COLORS,
   REQUIREMENT_EFFECT_LABELS, DERIVATION_LABELS,
-  clauseHasStructuredObligations, derivedRequirementIndicator,
-  type ClauseCategory, type ClauseModifier,
 } from '@/lib/clauses/clauseCategories';
 import BulkDocumentUploadModal from '@/components/upload/BulkDocumentUploadModal';
 import { US_STATES, COUNTRIES } from '@/lib/geoOptions';
@@ -1985,8 +1979,8 @@ export function ClauseExplorerTab() {
   const [schemas, setSchemas] = useState<string[]>(['auto']);
   const [detectingSchema, setDetectingSchema] = useState(false);
   const [schemaReason, setSchemaReason] = useState('');
-  // #, No., Name, Clause Text, Summary, Type, Category, Modifiers, actions
-  const [clauseExColWidths, setClauseExColWidths] = useState([30, 70, 140, 340, 160, 120, 116, 104, 28]);
+  // #, No., Name, Clause Text, Summary, Type, actions
+  const [clauseExColWidths, setClauseExColWidths] = useState([30, 70, 140, 340, 160, 120, 28]);
   const clauseExResizeDragRef = useRef<{ col: number; startX: number; startW: number } | null>(null);
   function startClauseExColResize(col: number, e: React.MouseEvent) {
     e.preventDefault(); e.stopPropagation();
@@ -3185,8 +3179,6 @@ export function ClauseExplorerTab() {
                     <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Clause Text<div onMouseDown={e => startClauseExColResize(3, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
                     <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Summary<div onMouseDown={e => startClauseExColResize(4, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
                     <th onClick={() => handleClauseSort('detected_type')} style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Type<ClauseSortIcon col="detected_type" /><div onMouseDown={e => startClauseExColResize(5, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
-                    <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Category<div onMouseDown={e => startClauseExColResize(6, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
-                    <th style={{ position: 'relative', padding: '8px 10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.62rem', textTransform: 'uppercase' }}>Modifiers<div onMouseDown={e => startClauseExColResize(7, e)} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 4, cursor: 'col-resize' }} /></th>
                     <th />
                   </tr>
                 </thead>
@@ -3289,60 +3281,6 @@ export function ClauseExplorerTab() {
                               </div>
                             </div>
                           )}
-                        </td>
-
-                        {/* Category — what the language IS (distinct from Type) */}
-                        <td style={{ padding: '6px 10px', verticalAlign: 'top' }} onClick={e => e.stopPropagation()}>
-                          {(() => {
-                            const cats: string[] = Array.isArray(c.category) ? c.category : [];
-                            const derivedInd = derivedRequirementIndicator({ category: cats, derived_effects: c.derived_effects });
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                  {cats.map((cat, ci) => (
-                                    <span key={ci} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 99, fontSize: '0.6rem', fontWeight: 700, background: `${(CLAUSE_CATEGORY_COLORS as any)[cat] || '#64748b'}22`, color: (CLAUSE_CATEGORY_COLORS as any)[cat] || '#94a3b8', border: `1px solid ${((CLAUSE_CATEGORY_COLORS as any)[cat] || '#64748b')}55`, whiteSpace: 'nowrap' }}>
-                                      {(CLAUSE_CATEGORY_LABELS as any)[cat] || cat}
-                                      <button onClick={() => updateClause(origIdx, { category: cats.filter(x => x !== cat) })}
-                                        style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.6, cursor: 'pointer', padding: 0, fontSize: '0.65rem', lineHeight: 1 }}>×</button>
-                                    </span>
-                                  ))}
-                                  {derivedInd && !cats.includes('obligation') && (
-                                    <span title="Not an obligation itself — produces a linked derived requirement" style={{ padding: '2px 6px', borderRadius: 99, fontSize: '0.58rem', fontWeight: 700, background: 'rgba(245,158,11,0.14)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap' }}>{derivedInd}</span>
-                                  )}
-                                </div>
-                                <select value="" onChange={e => { const v = e.target.value; if (!v || cats.includes(v)) return; updateClause(origIdx, { category: [...cats, v] }); }}
-                                  style={{ background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', color: '#e2e8f0', fontSize: '0.66rem', borderRadius: 4, padding: '3px 5px', fontFamily: 'inherit' }}>
-                                  <option value="">+ Category…</option>
-                                  {CLAUSE_CATEGORY_VALUES.map(v => <option key={v} value={v} title={CLAUSE_CATEGORY_DESCRIPTIONS[v]}>{CLAUSE_CATEGORY_LABELS[v]}</option>)}
-                                </select>
-                              </div>
-                            );
-                          })()}
-                        </td>
-
-                        {/* Modifiers — condition / qualification / exception */}
-                        <td style={{ padding: '6px 10px', verticalAlign: 'top' }} onClick={e => e.stopPropagation()}>
-                          {(() => {
-                            const mods: string[] = Array.isArray(c.modifiers) ? c.modifiers : [];
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                  {mods.map((m, mi) => (
-                                    <span key={mi} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 99, fontSize: '0.6rem', fontWeight: 700, background: `${(CLAUSE_MODIFIER_COLORS as any)[m] || '#64748b'}22`, color: (CLAUSE_MODIFIER_COLORS as any)[m] || '#94a3b8', border: `1px solid ${((CLAUSE_MODIFIER_COLORS as any)[m] || '#64748b')}55`, whiteSpace: 'nowrap' }}>
-                                      {(CLAUSE_MODIFIER_LABELS as any)[m] || m}
-                                      <button onClick={() => updateClause(origIdx, { modifiers: mods.filter(x => x !== m) })}
-                                        style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.6, cursor: 'pointer', padding: 0, fontSize: '0.65rem', lineHeight: 1 }}>×</button>
-                                    </span>
-                                  ))}
-                                </div>
-                                <select value="" onChange={e => { const v = e.target.value; if (!v || mods.includes(v)) return; updateClause(origIdx, { modifiers: [...mods, v] }); }}
-                                  style={{ background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', color: '#e2e8f0', fontSize: '0.66rem', borderRadius: 4, padding: '3px 5px', fontFamily: 'inherit' }}>
-                                  <option value="">+ Modifier…</option>
-                                  {CLAUSE_MODIFIER_VALUES.map(v => <option key={v} value={v}>{CLAUSE_MODIFIER_LABELS[v]}</option>)}
-                                </select>
-                              </div>
-                            );
-                          })()}
                         </td>
 
                         <td style={{ padding: '6px 6px', verticalAlign: 'top' }} onClick={e => e.stopPropagation()}>
@@ -3520,61 +3458,6 @@ function getClauseRowDocFamily(documentType: string | undefined): ClauseRowDocFa
   return 'contract';
 }
 
-// Compact checkbox-list filter for Category / Modifiers. Multiple selections
-// OR together within one filter; the caller ANDs across filters.
-function MultiTokenFilter({
-  label, values, labels, colors, selected, onChange, dsel, descriptions,
-}: {
-  label: string;
-  values: readonly string[];
-  labels: Record<string, string>;
-  colors: Record<string, string>;
-  selected: Set<string>;
-  onChange: (next: Set<string>) => void;
-  dsel: React.CSSProperties;
-  descriptions?: Record<string, string>;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
-  const toggle = (v: string) => {
-    const next = new Set(selected);
-    next.has(v) ? next.delete(v) : next.add(v);
-    onChange(next);
-  };
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(o => !o)} style={{ ...dsel, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-        {label}{selected.size > 0 && <span style={{ background: 'rgba(124,58,237,0.25)', color: '#c4b5fd', borderRadius: 99, padding: '0 6px', fontSize: '0.68rem', fontWeight: 700 }}>{selected.size}</span>}
-        <span style={{ opacity: 0.5, fontSize: '0.6rem' }}>▾</span>
-      </button>
-      {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 40, background: '#0e0b18', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 8, padding: 8, minWidth: 190, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-          {values.map(v => {
-            const on = selected.has(v);
-            return (
-              <label key={v} title={descriptions?.[v]} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 5, cursor: 'pointer', background: on ? 'rgba(124,58,237,0.12)' : 'transparent' }}>
-                <input type="checkbox" checked={on} onChange={() => toggle(v)} style={{ accentColor: '#a78bfa', width: 13, height: 13, cursor: 'pointer' }} />
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[v] || '#94a3b8', flexShrink: 0 }} />
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-primary)' }}>{labels[v] || v}</span>
-              </label>
-            );
-          })}
-          {selected.size > 0 && (
-            <button onClick={() => onChange(new Set())} style={{ marginTop: 4, width: '100%', background: 'none', border: 'none', color: 'rgba(248,113,113,0.7)', fontSize: '0.68rem', cursor: 'pointer', padding: '4px 0', textDecoration: 'underline' }}>
-              Clear {label}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Structured-obligation side panel ───────────────────────────────────────
 // Opens from a source clause. Shows EVERY atomic obligation linked to that
 // clause — explicit and derived alike — with full structured detail,
@@ -3654,18 +3537,6 @@ function ClauseObligationsPanel({ clause, docTitle, onClose }: { clause: any; do
         <div style={L}>Source Clause Text</div>
         <div style={{ fontSize: '0.72rem', color: 'rgba(240,214,255,0.85)', lineHeight: 1.5, maxHeight: 130, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
           {clause.clause_text || '—'}
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
-          {(Array.isArray(clause.category) ? clause.category : []).map((cat: string) => (
-            <span key={cat} style={{ padding: '1px 6px', borderRadius: 99, fontSize: '0.58rem', fontWeight: 700, background: `${(CLAUSE_CATEGORY_COLORS as any)[cat] || '#64748b'}22`, color: (CLAUSE_CATEGORY_COLORS as any)[cat] || '#94a3b8' }}>
-              {(CLAUSE_CATEGORY_LABELS as any)[cat] || cat}
-            </span>
-          ))}
-          {(Array.isArray(clause.modifiers) ? clause.modifiers : []).map((m: string) => (
-            <span key={m} style={{ padding: '1px 6px', borderRadius: 99, fontSize: '0.58rem', fontWeight: 700, background: `${(CLAUSE_MODIFIER_COLORS as any)[m] || '#64748b'}22`, color: (CLAUSE_MODIFIER_COLORS as any)[m] || '#94a3b8' }}>
-              {(CLAUSE_MODIFIER_LABELS as any)[m] || m}
-            </span>
-          ))}
         </div>
       </div>
 
@@ -3808,16 +3679,13 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
   const [previewPanelDragging, setPreviewPanelDragging] = useState(false);
   const previewPanelResizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [colWidths, setColWidths] = useState(
-    // checkbox, Clause ID, Clause No., Clause Name, Clause Type, Category,
-    // Modifiers, Clause Text, Summary, Doc ID, Counterparty, Doc Type,
-    // Paper Source, Compliance, Effective Date, Status, Actions
-    [36, 90, 80, 140, 150, 132, 118, 200, 200, 120, 120, 120, 100, 110, 110, 88, 60]
+    // checkbox, Clause ID, Clause No., Clause Name, Clause Type, Clause Text,
+    // Summary, Doc ID, Counterparty, Doc Type, Paper Source, Compliance,
+    // Effective Date, Status, Actions
+    [36, 90, 80, 140, 150, 200, 200, 120, 120, 120, 100, 110, 110, 88, 60]
   );
   const [activeResizeCol, setActiveResizeCol] = useState<number | null>(null);
   const [clauseIdPopup, setClauseIdPopup] = useState<{ clause: any; anchor: { top: number; left: number } } | null>(null);
-  // Category / Modifiers filters — OR within each set, AND across the two.
-  const [filterCategories, setFilterCategories] = useState<Set<string>>(new Set());
-  const [filterModifiers, setFilterModifiers] = useState<Set<string>>(new Set());
   // Structured-obligation side panel — opened from a source clause.
   const [obligationPanelClause, setObligationPanelClause] = useState<any | null>(null);
   const [docFileTextCache, setDocFileTextCache] = useState<Record<string, string>>({});
@@ -4157,17 +4025,6 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
   );
   if (filterDocument) filtered = filtered.filter(c => c.document_id === filterDocument);
   if (filterType) filtered = filtered.filter(c => (c.detected_type || '').split(',').map((s: string) => s.trim()).includes(filterType));
-  // Category / Modifiers: OR within each selected set, AND across the two
-  // (a clause must match at least one selected Category AND at least one
-  // selected Modifier). Distinct from Clause Type, which is filtered above.
-  if (filterCategories.size) filtered = filtered.filter(c => {
-    const cats: string[] = Array.isArray(c.category) ? c.category : [];
-    return [...filterCategories].some(fc => cats.includes(fc));
-  });
-  if (filterModifiers.size) filtered = filtered.filter(c => {
-    const mods: string[] = Array.isArray(c.modifiers) ? c.modifiers : [];
-    return [...filterModifiers].some(fm => mods.includes(fm));
-  });
   if (filterVendorType) filtered = filtered.filter(c => vendorTypeById[docCounterpartyId[c.document_id]] === filterVendorType);
   if (filterList && savedLists[filterList]) filtered = filtered.filter(c => savedLists[filterList].includes(c.clause_id || ''));
   if (clauseSearch.trim()) filtered = filtered.filter(c =>
@@ -4286,15 +4143,6 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
           <option value="">All Types</option>
           {allTypes.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <MultiTokenFilter
-          label="Category" values={CLAUSE_CATEGORY_VALUES} labels={CLAUSE_CATEGORY_LABELS}
-          descriptions={CLAUSE_CATEGORY_DESCRIPTIONS}
-          colors={CLAUSE_CATEGORY_COLORS} selected={filterCategories} onChange={setFilterCategories} dsel={DSEL}
-        />
-        <MultiTokenFilter
-          label="Modifiers" values={CLAUSE_MODIFIER_VALUES} labels={CLAUSE_MODIFIER_LABELS}
-          colors={CLAUSE_MODIFIER_COLORS} selected={filterModifiers} onChange={setFilterModifiers} dsel={DSEL}
-        />
         {familyFilter !== 'insurance' && (
           <select value={filterVendorType} onChange={e => setFilterVendorType(e.target.value)} style={DSEL}>
             <option value="">All Service Provider Types</option>
@@ -4389,7 +4237,7 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
                     const d = await res.json();
                     if (d.error) setExtractMsg(d.error);
                     else {
-                      setExtractMsg(`${d.explicitObligations + d.derivedObligations} obligations (${d.derivedObligations} derived) · ${d.applicability_rows} applicability rows${d.category_column_missing ? ' · run the migration for Category/Modifiers' : ''}`);
+                      setExtractMsg(`${d.explicitObligations + d.derivedObligations} obligations (${d.derivedObligations} derived) · ${d.applicability_rows} applicability rows`);
                       invalidateClausesCache();
                       fetchClausesCached().then(list => setClauses(list || []));
                     }
@@ -4536,8 +4384,6 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
                   ['Clause No.',      'clause_no'],
                   ['Clause Name',     'clause_name'],
                   ['Clause Type',     'detected_type'],
-                  ['Category',        ''],
-                  ['Modifiers',       ''],
                   ['Clause Text',     'clause_text'],
                   ['Summary (AI)',    'normalized_summary'],
                   ['Doc ID',          'document_id'],
@@ -4710,89 +4556,6 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
                       )}
                     </td>
 
-                    {/* Col 3c — Category: what the source language IS (Obligation
-                        / Rep-Warranty / Acknowledgment / Statement / Definition).
-                        Distinct from Clause Type. Shows an "Obligation" badge
-                        whenever selected; a "Derived <effect>" / "Creates
-                        Requirement" indicator when a non-obligation clause has
-                        linked derived obligations. Opens the structured-
-                        obligation panel when it has any. */}
-                    <td style={{ ...TD }} onClick={e => e.stopPropagation()}>
-                      {(() => {
-                        const cats: string[] = isEditingThis
-                          ? (editClauseData.category ?? (Array.isArray(c.category) ? c.category : []))
-                          : (Array.isArray(c.category) ? c.category : []);
-                        const derivedInd = derivedRequirementIndicator({ category: cats, derived_effects: c.derived_effects });
-                        const canOpen = clauseHasStructuredObligations({ category: cats, linked_obligation_count: c.linked_obligation_count });
-                        return (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
-                            {cats.map((cat: string, ci: number) => (
-                              <span key={ci} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 99, fontSize: '0.62rem', fontWeight: 700, background: (CLAUSE_CATEGORY_COLORS as any)[cat] ? `${(CLAUSE_CATEGORY_COLORS as any)[cat]}22` : 'rgba(100,116,139,0.15)', color: (CLAUSE_CATEGORY_COLORS as any)[cat] || '#94a3b8', border: `1px solid ${((CLAUSE_CATEGORY_COLORS as any)[cat] || '#64748b')}55`, whiteSpace: 'nowrap' }}>
-                                {(CLAUSE_CATEGORY_LABELS as any)[cat] || cat}
-                                {isEditingThis && (
-                                  <button onClick={() => setEditClauseData(p => ({ ...p, category: (p.category ?? cats).filter((x: string) => x !== cat) }))}
-                                    style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.6, cursor: 'pointer', padding: 0, fontSize: '0.65rem', lineHeight: 1 }}>×</button>
-                                )}
-                              </span>
-                            ))}
-                            {cats.length === 0 && !isEditingThis && <span style={{ color: 'rgba(148,163,184,0.3)', fontSize: '0.72rem' }}>—</span>}
-                            {!isEditingThis && derivedInd && (
-                              <span title="This clause is not itself an obligation, but its language produces a linked atomic requirement"
-                                style={{ padding: '2px 6px', borderRadius: 99, fontSize: '0.6rem', fontWeight: 700, background: 'rgba(245,158,11,0.14)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)', whiteSpace: 'nowrap' }}>
-                                {derivedInd}
-                              </span>
-                            )}
-                            {!isEditingThis && canOpen && (
-                              <button onClick={() => { setObligationPanelClause(c); setComplianceDetailClause(null); setClauseDocViewer(null); }}
-                                title="Open the structured atomic obligations for this clause"
-                                style={{ padding: '2px 7px', borderRadius: 99, fontSize: '0.6rem', fontWeight: 700, background: 'rgba(124,58,237,0.14)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.35)', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
-                                Obligations{c.linked_obligation_count ? ` (${c.linked_obligation_count})` : ''} ↗
-                              </button>
-                            )}
-                            {isEditingThis && (
-                              <select value="" onChange={e => { const v = e.target.value; if (!v) return; setEditClauseData(p => { const cur: string[] = p.category ?? cats; return cur.includes(v) ? p : { ...p, category: [...cur, v] }; }); }}
-                                style={{ background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', color: '#e2e8f0', fontSize: '0.66rem', borderRadius: 4, padding: '3px 5px', fontFamily: 'inherit' }}>
-                                <option value="">+ Category…</option>
-                                {CLAUSE_CATEGORY_VALUES.map(v => <option key={v} value={v} title={CLAUSE_CATEGORY_DESCRIPTIONS[v]}>{CLAUSE_CATEGORY_LABELS[v]}</option>)}
-                              </select>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </td>
-
-                    {/* Col 3d — Modifiers: condition / qualification / exception
-                        language attached to the principal clause. Any
-                        combination; never a primary Category. */}
-                    <td style={{ ...TD }} onClick={e => e.stopPropagation()}>
-                      {(() => {
-                        const mods: string[] = isEditingThis
-                          ? (editClauseData.modifiers ?? (Array.isArray(c.modifiers) ? c.modifiers : []))
-                          : (Array.isArray(c.modifiers) ? c.modifiers : []);
-                        return (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
-                            {mods.map((m: string, mi: number) => (
-                              <span key={mi} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 99, fontSize: '0.62rem', fontWeight: 700, background: (CLAUSE_MODIFIER_COLORS as any)[m] ? `${(CLAUSE_MODIFIER_COLORS as any)[m]}22` : 'rgba(100,116,139,0.15)', color: (CLAUSE_MODIFIER_COLORS as any)[m] || '#94a3b8', border: `1px solid ${((CLAUSE_MODIFIER_COLORS as any)[m] || '#64748b')}55`, whiteSpace: 'nowrap' }}>
-                                {(CLAUSE_MODIFIER_LABELS as any)[m] || m}
-                                {isEditingThis && (
-                                  <button onClick={() => setEditClauseData(p => ({ ...p, modifiers: (p.modifiers ?? mods).filter((x: string) => x !== m) }))}
-                                    style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.6, cursor: 'pointer', padding: 0, fontSize: '0.65rem', lineHeight: 1 }}>×</button>
-                                )}
-                              </span>
-                            ))}
-                            {mods.length === 0 && !isEditingThis && <span style={{ color: 'rgba(148,163,184,0.3)', fontSize: '0.72rem' }}>—</span>}
-                            {isEditingThis && (
-                              <select value="" onChange={e => { const v = e.target.value; if (!v) return; setEditClauseData(p => { const cur: string[] = p.modifiers ?? mods; return cur.includes(v) ? p : { ...p, modifiers: [...cur, v] }; }); }}
-                                style={{ background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', color: '#e2e8f0', fontSize: '0.66rem', borderRadius: 4, padding: '3px 5px', fontFamily: 'inherit' }}>
-                                <option value="">+ Modifier…</option>
-                                {CLAUSE_MODIFIER_VALUES.map(v => <option key={v} value={v}>{CLAUSE_MODIFIER_LABELS[v]}</option>)}
-                              </select>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </td>
-
                     {/* Col 4 — Clause Text */}
                     <td style={{ ...TD }}>
                       {isEditingThis
@@ -4941,7 +4704,7 @@ export function ObligationsTab({ contractFilter, insurerFilter, policyFilter, fa
                         </div>
                       ) : (
                         <>
-                          <button onClick={() => { setEditingClauseId(clauseKey); setEditClauseData({ clause_no: c.clause_no || '', clause_name: c.clause_name || '', detected_type: c.detected_type || '', ai_classification: c.ai_classification || '', clause_text: c.clause_text || '', paper_source: c.paper_source || '', survives_termination: !!c.survives_termination, category: Array.isArray(c.category) ? [...c.category] : [], modifiers: Array.isArray(c.modifiers) ? [...c.modifiers] : [] }); }}
+                          <button onClick={() => { setEditingClauseId(clauseKey); setEditClauseData({ clause_no: c.clause_no || '', clause_name: c.clause_name || '', detected_type: c.detected_type || '', ai_classification: c.ai_classification || '', clause_text: c.clause_text || '', paper_source: c.paper_source || '', survives_termination: !!c.survives_termination }); }}
                             style={{ background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, color: 'rgba(148,163,184,0.45)', cursor: 'pointer', fontSize: '0.72rem', padding: '3px 7px', lineHeight: 1, marginRight: 5, transition: 'all 0.1s', fontFamily: 'inherit' }}
                             onMouseEnter={e => { (e.currentTarget.style.borderColor = 'rgba(124,58,237,0.4)'); (e.currentTarget.style.color = '#a78bfa'); }}
                             onMouseLeave={e => { (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'); (e.currentTarget.style.color = 'rgba(148,163,184,0.45)'); }}>✎</button>

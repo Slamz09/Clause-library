@@ -4,9 +4,9 @@ import { sanitizeForPrompt, wrapUserContent, SYSTEM_PROMPT_SAFETY_PREFIX } from 
 import { requireSession } from '@/lib/auth/requireSession';
 import { extractClausesRuleBased } from '@/lib/ruleBasedExtractor';
 
-// Deterministic fallback for when the LLM path can't produce clauses — both
-// providers unavailable (Groq rate-limited / down AND Mistral unavailable), or
-// the model's output can't be parsed/repaired, or it came back empty. Segments
+// Deterministic fallback for when the LLM path can't produce clauses — Groq
+// unavailable (rate-limited / down), or the model's output can't be
+// parsed/repaired, or it came back empty. Segments
 // the document with the rule-based numbering-schema extractor: no party
 // identification and no LLM clause typing, but the parse completes instead of
 // hard-failing. classify-clauses re-types these downstream (LLM, or its CUAD

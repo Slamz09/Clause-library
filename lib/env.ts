@@ -60,9 +60,8 @@ export const env = {
   NEXT_PUBLIC_SUPABASE_ANON_KEY: requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
   SUPABASE_SERVICE_ROLE_KEY: requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
 
-  // LLM
+  // LLM — Groq is the only provider (Mistral fallback removed).
   GROQ_API_KEY: requireEnv('GROQ_API_KEY'),
-  MISTRAL_API_KEY: requireEnv('MISTRAL_API_KEY'),
   LLAMA_CLOUD_API_KEY: optionalEnv('LLAMA_CLOUD_API_KEY'),
 
   // Rate limiting (Upstash Redis) — optional until rate limiting is wired
