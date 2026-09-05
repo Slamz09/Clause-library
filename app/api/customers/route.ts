@@ -17,7 +17,12 @@ export async function GET() {
     .from('clients')
     .select('client_id, client_name, city, state, region, video_consent_policy, dash_cam_video_consent_policy, audio_consent_policy, ai_use_consent_policy, insurance_policy_id, insurance_coverage, additional_insured, prohibition_on_data_sharing, total_service_engagements_count, incidents, complaints, driver_compliance_issues, contracts_active, contracts_expired, contracts_approaching, compliance_flags, bgc_requirement_types')
     .order('client_name');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Standalone build: this parent-platform table may not exist. Degrade to an
+  // empty list rather than 500.
+  if (error) {
+    console.warn('[customers] clients query failed — returning empty:', error.message);
+    return NextResponse.json({ clients: [] });
+  }
   // Deduplicate by client_id in case of duplicate rows in the database
   const deduped = Array.from(new Map((data || []).map(c => [c.client_id, c])).values());
   return NextResponse.json({ clients: deduped });

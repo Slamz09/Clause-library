@@ -10,7 +10,13 @@ export async function GET() {
     .from('service_providers')
     .select('*')
     .order('legal_name');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Standalone build: this parent-platform table may not exist. Degrade to an
+  // empty list rather than 500 — the parser/clause-library UI only uses it to
+  // populate an optional counterparty dropdown.
+  if (error) {
+    console.warn('[vendors] service_providers query failed — returning empty:', error.message);
+    return NextResponse.json({ service_providers: [] });
+  }
   return NextResponse.json({ service_providers: data || [] });
 }
 

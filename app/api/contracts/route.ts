@@ -100,7 +100,12 @@ export async function GET(req: NextRequest) {
     const legacy = await supabase.from('contracts').select('*').order('created_at', { ascending: false }).limit(limit);
     return NextResponse.json({ contracts: legacy.data || [] });
   }
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Standalone build: the contract columns / legacy table may not exist at
+  // all. Degrade to empty rather than 500 — ContractsTab just renders no rows.
+  if (error) {
+    console.warn('[contracts] query failed — returning empty:', error.message);
+    return NextResponse.json({ contracts: [] });
+  }
 
   const contracts = (data || []).filter(isContractDoc).map(shapeContract);
   return NextResponse.json({ contracts });

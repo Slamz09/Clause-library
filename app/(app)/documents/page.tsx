@@ -2694,6 +2694,16 @@ export function ClauseExplorerTab() {
         }
       }
 
+      // Fallback: an "Upload New" extraction that took neither the
+      // insurance/non-bilateral path nor the "Save to Documents" path still
+      // needs a real document row — otherwise clauses persist against 'tmp'
+      // and the Clause Library source-file viewer 404s on /api/documents/tmp/file.
+      if (uploadMode === 'new' && !docId && newFile) {
+        try {
+          docId = await ensureDocumentSaved(currentDocType || newDocType || selectedDoc?.document_type || 'general_contract');
+        } catch { /* fall through — clauses still save, just without a doc link */ }
+      }
+
       const resolvedCounterparty = isInsuranceFamily
         ? (insurerVendorId || insurerVendorName || undefined)
         : (extractorCounterpartyId && extractorCounterpartyId !== '_new_') ? extractorCounterpartyId : (newCounterpartyName || selectedDoc?.counterparty_name);

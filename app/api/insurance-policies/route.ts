@@ -10,7 +10,11 @@ export async function GET() {
     .from('insurance_policies')
     .select('*')
     .order('created_at', { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Standalone build: table may not exist. Degrade to empty rather than 500.
+  if (error) {
+    console.warn('[insurance-policies] query failed — returning empty:', error.message);
+    return NextResponse.json({ policies: [] });
+  }
   return NextResponse.json({ policies: data || [] });
 }
 

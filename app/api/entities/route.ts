@@ -14,7 +14,12 @@ export async function GET() {
   if (denied) return denied;
   const supabase = createServerClient();
   const { data, error } = await supabase.from('entities').select('*').order('name', { ascending: true });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Standalone build: table may not exist. Degrade to empty rather than 500 —
+  // classifyDocument() reads this only for company-name matching.
+  if (error) {
+    console.warn('[entities] query failed — returning empty:', error.message);
+    return NextResponse.json({ entities: [] });
+  }
   return NextResponse.json({ entities: data || [] });
 }
 

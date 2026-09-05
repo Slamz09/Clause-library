@@ -9,6 +9,14 @@ import { ingestClauseObligationsForDocument, type ObligationSourceType } from '@
 import { buildApplicabilityForDocument } from '@/lib/obligations/applicabilityBuilder';
 import { requireSession } from '@/lib/auth/requireSession';
 
+// Standalone build: everything after the clause upsert — obligation-topic
+// mapping, structured atomic-obligation ingest (which fans out an LLM call per
+// clause), applicability, and the per-clause compliance LLM check — targets
+// parent-platform tables that don't exist here, and its LLM fan-out was
+// OOM/timeout-ing constrained hosts (Render free tier → 502). Off by default;
+// set ENABLE_OBLIGATION_PIPELINE=true to restore it.
+const RUN_OBLIGATION_PIPELINE = process.env.ENABLE_OBLIGATION_PIPELINE === 'true';
+
 // ─── Stop-word set for keyword-overlap matching ───────────────────────────────
 const STOP_WORDS = new Set([
   'the','a','an','of','in','to','and','or','for','with','that','this','shall',
@@ -987,6 +995,9 @@ const normalizeType = (t: string | undefined): string => {
       }
       if (upsertError) {
         console.error('Clauses upsert error:', upsertError);
+      } else if (!RUN_OBLIGATION_PIPELINE) {
+        // Standalone: clause save is done. Skip the obligation/compliance
+        // pipeline (see RUN_OBLIGATION_PIPELINE note at top of file).
       } else {
         // Obligation-topic mapping (Phase 2b Step 2). Runs for EVERY
         // document's clauses, not only regulatory provisions (chat
