@@ -20,3 +20,12 @@ scratch_*
 
 # Office lock files
 ~$*
+
+# Local file-backed data store (standalone build)
+.data/
+
+# Editor / OS screenshots
+/FireShot Capture*
+
+# TypeScript incremental build cache
+*.tsbuildinfo

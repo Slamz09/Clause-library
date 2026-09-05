@@ -2,6 +2,32 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createChatCompletion, GROQ_MODEL } from '@/lib/groq';
 import { sanitizeForPrompt, wrapUserContent, SYSTEM_PROMPT_SAFETY_PREFIX } from '@/lib/security/sanitizePrompt';
 import { requireSession } from '@/lib/auth/requireSession';
+import { extractClausesRuleBased } from '@/lib/ruleBasedExtractor';
+
+// Deterministic fallback for when the LLM path can't produce clauses — both
+// providers unavailable (Groq rate-limited / down AND Mistral unavailable), or
+// the model's output can't be parsed/repaired, or it came back empty. Segments
+// the document with the rule-based numbering-schema extractor: no party
+// identification and no LLM clause typing, but the parse completes instead of
+// hard-failing. classify-clauses re-types these downstream (LLM, or its CUAD
+// signature fallback). Returns null if even the segmenter finds nothing.
+function ruleBasedFallbackResponse(text: string): NextResponse | null {
+  let clauses: ReturnType<typeof extractClausesRuleBased>;
+  try {
+    clauses = extractClausesRuleBased(text).filter(c => c.clause_text?.trim());
+  } catch (e) {
+    console.error('[extract-clauses-llama] rule-based fallback threw:', e);
+    return null;
+  }
+  if (clauses.length === 0) return null;
+  console.warn(`[extract-clauses-llama] rule-based fallback produced ${clauses.length} clauses.`);
+  return NextResponse.json({
+    clauses,
+    entity_names: [],
+    counterparty_names: [],
+    extraction_mode: 'rule_based_fallback',
+  });
+}
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
@@ -201,8 +227,11 @@ Return ONLY a single valid JSON object — no markdown, no explanation:
       console.warn('[extract-clauses-llama] LLM produced invalid JSON — attempting repair.');
       raw = failedGeneration.trim();
     } else {
-      console.error('[extract-clauses-llama] LLM completion failed:', err);
-      return NextResponse.json({ error: 'Clause extraction failed — the AI service is unavailable. Please try again.' }, { status: 502 });
+      console.warn('[extract-clauses-llama] LLM unavailable — falling back to rule-based segmentation.', (err as any)?.message || err);
+      const fallback = ruleBasedFallbackResponse(text);
+      if (fallback) return fallback;
+      console.error('[extract-clauses-llama] LLM completion failed and rule-based fallback found no clauses:', err);
+      return NextResponse.json({ error: 'Clause extraction failed — the AI service is unavailable and no clauses could be segmented automatically. Please try again.' }, { status: 502 });
     }
   }
 
@@ -219,6 +248,8 @@ Return ONLY a single valid JSON object — no markdown, no explanation:
       + `\nLength: ${cleaned.length} chars`
       + `\nStart: ${cleaned.slice(0, 300)}`
       + `\nEnd: ${cleaned.slice(-300)}`);
+    const fallback = ruleBasedFallbackResponse(text);
+    if (fallback) return fallback;
     return NextResponse.json({ error: 'Could not parse the extraction result. The document may be too complex or the AI response was malformed — please try again.' }, { status: 502 });
   }
 
@@ -258,6 +289,8 @@ Return ONLY a single valid JSON object — no markdown, no explanation:
 
   if (clauses.length === 0) {
     console.error('[extract-clauses-llama] Parsed JSON but found no usable clauses (missing/empty clause_text on every item). Raw snippet:', raw.slice(0, 500));
+    const fallback = ruleBasedFallbackResponse(text);
+    if (fallback) return fallback;
     return NextResponse.json({ error: 'The AI found no valid clauses in this document. Try again, or check that the document contains extractable contract text.' }, { status: 502 });
   }
 
