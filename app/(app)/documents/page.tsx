@@ -2559,6 +2559,11 @@ export function ClauseExplorerTab() {
           const docData = await docRes.json();
           if (docData.document?.document_id) {
             docId = docData.document.document_id;
+            // Mirror the component state, same as ensureDocumentSaved() does —
+            // otherwise selectedDocId stays '' after a successful "Upload New"
+            // save and any later action keyed off it (re-save / re-classify,
+            // ensureDocumentSaved's idempotency guard) misbehaves.
+            setSelectedDocId(docId);
             invalidateDocumentsCache();
             fetchDocumentsCached().then(setDocs);
             const fd = new FormData();
